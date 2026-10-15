@@ -37,8 +37,15 @@ jobs:
             printf "window.GAMERANK_CONFIG = { apiUrl: '%s' };\n" "$API_URL" > web/config.js
           fi
       - run: npm install --no-audit --no-fund
-      - run: npm run android:add
-      - run: npm run android:sync
+      - name: Create Android project
+        run: |
+          npx cap add android
+          node scripts/patch-android.mjs
+      - name: Generate app icons
+        continue-on-error: true
+        run: npx capacitor-assets generate --android --iconBackgroundColor '#0b0b0b' --splashBackgroundColor '#0b0b0b'
+      - run: npx cap sync android
+      - run: node scripts/patch-android.mjs
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
