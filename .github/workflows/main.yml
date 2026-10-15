@@ -1,0 +1,87 @@
+name: Build GameRank apps
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  API_URL: ${{ vars.GAMERANK_API_URL }}
+
+jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node server/test.js
+
+  android:
+    needs: server-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - name: Point the app at your server
+        run: |
+          if [ -n "$API_URL" ]; then
+            printf "window.GAMERANK_CONFIG = { apiUrl: '%s' };\n" "$API_URL" > web/config.js
+          fi
+      - run: npm install --no-audit --no-fund
+      - run: npm run android:add
+      - run: npm run android:sync
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameRank-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  desktop:
+    needs: server-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, script: 'desktop:win', name: windows, glob: 'dist/*.exe' }
+          - { os: ubuntu-latest, script: 'desktop:linux', name: linux, glob: 'dist/*.AppImage' }
+          - { os: macos-latest, script: 'desktop:mac', name: macos, glob: 'dist/*.dmg' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Point the app at your server
+        shell: bash
+        run: |
+          if [ -n "$API_URL" ]; then
+            printf "window.GAMERANK_CONFIG = { apiUrl: '%s' };\n" "$API_URL" > web/config.js
+          fi
+      - run: npm install --no-audit --no-fund
+      - run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GameRank-${{ matrix.name }}
+          path: ${{ matrix.glob }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
