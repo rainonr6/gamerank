@@ -31,7 +31,6 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
-      - uses: android-actions/setup-android@v3
       - name: Point the app at your server
         run: |
           if [ -n "$API_URL" ]; then
